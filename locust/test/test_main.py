@@ -447,7 +447,7 @@ class StandaloneIntegrationTests(ProcessIntegrationTest):
         port = get_free_tcp_port()
         with mock_locustfile() as mocked:
             with TestProcess(
-                f"locust -f {mocked.file_path} --web-port {port} --autostart", expect_return_code=None
+                f"locust -f {mocked.file_path} --web-port {port} --autostart --autoquit 0", expect_return_code=None, sigint_on_exit=False
             ) as tp:
                 tp.expect("Starting Locust")
 
@@ -532,7 +532,7 @@ class StandaloneIntegrationTests(ProcessIntegrationTest):
             )
         ) as mocked:
             with TestProcess(
-                f"locust -f {mocked.file_path} --web-port {port} --autostart", expect_return_code=None
+                f"locust -f {mocked.file_path} --web-port {port} --autostart --autoquit 0", expect_return_code=None, sigint_on_exit=False
             ) as tp:
                 tp.expect("Starting Locust")
                 tp.expect("Starting web interface")

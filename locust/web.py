@@ -194,6 +194,8 @@ class WebUI:
                 os.path.join(self.app.template_folder, "assets")
                 if os.path.exists(os.path.join(app.template_folder, "assets", path))
                 else os.path.join(DEFAULT_BUILD_PATH, "assets")
+                if os.path.exists(os.path.join(DEFAULT_BUILD_PATH, "assets", path))
+                else os.path.join(DEFAULT_BUILD_PATH, "public", "assets")
             )
 
             return send_from_directory(directory, path)
