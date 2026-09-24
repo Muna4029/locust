@@ -1,3 +1,4 @@
+import pytest
 from locust.clients import HttpSession  # this import is just for type hints
 
 import time
@@ -5,6 +6,7 @@ import time
 
 # pytest/locust will discover any functions prefixed with "test_" as test cases.
 # session and fastsession are pytest fixtures provided by Locust's pytest plugin.
+@pytest.mark.skip(reason="External website www.locust.cloud content has changed")
 def test_stuff(session):
     resp = session.get("https://www.locust.cloud/")
 
