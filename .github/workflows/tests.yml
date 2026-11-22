@@ -2,11 +2,15 @@ name: Tests
 
 on:
   push:
+    branches:
+      - master
+    tags:
+      - "*"
     paths-ignore:
-      - '**.md'
+      - "**.md"
   pull_request:
     paths-ignore:
-      - '**.md'
+      - "**.md"
 
 permissions:
   contents: read
@@ -16,7 +20,6 @@ defaults:
     shell: bash
 
 jobs:
-
   #-------------------------
   #       Building
   #-------------------------
@@ -31,37 +34,42 @@ jobs:
       is_merge_commit: ${{ steps.set_is_merge_commit.outputs.is_merge_commit }}
       is_tag_build: ${{ steps.set_is_tag_build.outputs.is_tag_build }}
       python_version: ${{ steps.set_python_version.outputs.python_version }}
-    
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          fetch-tags: true 
+          fetch-tags: true
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
-          version: "0.7.2"
+          version: "0.13.7"
           enable-cache: true
-          cache-dependency-glob: "uv.lock"
+          cache-dependency-glob: |
+            "pyproject.toml"
+            "uv.lock"
 
       - run: uv venv
 
+      #   # ensure uv.lock doesn't contain anything not in pyproject.toml
+      #   - run: uv lock --check
+
       - name: Install the project
         run: uv sync
-  
+
       # any local changes would make hatch-vcs set a "local version" (+dev0...), so we ignore any uv.lock updates:
       - run: git update-index --assume-unchanged uv.lock
-  
-      # Install node and yarn in order to build the front end during packaging  
+
+      # Install node and yarn in order to build the front end during packaging
       - name: Set Node.js 22.x
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22.x
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: locust/webui/yarn.lock
 
       # Build and upload the project artifacts only once
@@ -69,33 +77,35 @@ jobs:
         run: uv build
 
       - name: Upload Python dist as Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-dist
           path: dist/*
 
       - name: Upload Web UI as Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: webui-dist
           path: locust/webui/dist/*
-  
+
       - name: Build UI library
         run: yarn webui:build:lib
 
       - name: Upload web UI library as Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: webui-lib-dist
           path: locust/webui/lib
-      
+
       # Set workflow metadata in one place so we can pull it out later
       - id: set_tag
         run: echo "tag=$(uv run hatch version)" | tee -a "$GITHUB_OUTPUT"
       - id: set_tag_short
         run: echo "tag_short=$(uv run hatch version | cut -d '.' -f1-3)" | tee -a "$GITHUB_OUTPUT"
       - id: set_branch
-        run: echo "branch=${{ github.head_ref || github.ref_name }}" | tee -a "$GITHUB_OUTPUT"
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }} # use this intermediate step to prevent untrusted input
+        run: echo "branch=$BRANCH" | tee -a "$GITHUB_OUTPUT"
       - id: set_is_merge_commit
         run: echo "is_merge_commit=$( [ $(git rev-list --count $GITHUB_SHA^@) -eq 2 ] && echo 'true' || echo 'false' )" | tee -a "$GITHUB_OUTPUT"
       - id: set_is_tag_build
@@ -108,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build_package
     steps:
-       - run: |
+      - run: |
           echo "tag: ${{ needs.build_package.outputs.tag }}"
           echo "tag_short: ${{ needs.build_package.outputs.tag_short }}"
           echo "branch: ${{ needs.build_package.outputs.branch }}"
@@ -130,39 +140,114 @@ jobs:
       matrix:
         include:
           # Static analysis and utilities
-          - { name: "Ruff", python: "3.12", os: ubuntu-latest, group: "lint", env: "lint:format" }
-          - { name: "Mypy", python: "3.12", os: ubuntu-latest, group: "lint", env: "lint:types" }
+          - {
+              name: "Ruff",
+              python: "3.12",
+              os: ubuntu-latest,
+              group: "lint",
+              env: "lint:format",
+            }
+          - {
+              name: "Mypy",
+              python: "3.12",
+              os: ubuntu-latest,
+              group: "lint",
+              env: "lint:types",
+            }
+          - {
+              name: "Typos",
+              python: "3.12",
+              os: ubuntu-latest,
+              group: "lint",
+              env: "lint:spelling",
+            }
+          # Verification of builds and other aspects
+          - {
+              name: "Docs Build",
+              python: "3.12",
+              os: ubuntu-latest,
+              group: "docs",
+              env: "docs:build",
+            }
 
-          # Verification of builds and other aspects          
-          - { name: "Docs Build", python: "3.12", os: ubuntu-latest, group: "docs", env: "docs:build" }
-
-          # OS Integration tests 
-          - { name: "Linux", python: "3.12", os: ubuntu-latest, group: "test", env: "integration_test_ci:fail_fast" }
-          - { name: "Windows", python: '3.12', os: windows-latest, group: "test", env: "integration_test_ci:fail_fast" }
-          - { name: "Linux_pytest_locustfile", python: "3.12", os: ubuntu-latest, group: "test", env: "integration_test_ci:test_pytest" }
+          # OS Integration tests
+          - {
+              name: "Linux",
+              python: "3.12",
+              os: ubuntu-latest,
+              group: "test",
+              env: "integration_test_ci:fail_fast",
+            }
+          - {
+              name: "Windows",
+              python: "3.12",
+              os: windows-latest,
+              group: "test",
+              env: "integration_test_ci:fail_fast",
+            }
+          - {
+              name: "Linux_pytest_locustfile",
+              python: "3.12",
+              os: ubuntu-latest,
+              group: "test",
+              env: "integration_test_ci:test_pytest",
+            }
           # MacOS behaves super badly on GH actions right now, so let's disable it for the time being
-          # - { name: "MacOS", python: '3.12', os: macos-latest, group: "test", env: "integration_test_ci:fail_fast" } 
-          
+          # - { name: "MacOS", python: '3.12', os: macos-latest, group: "test", env: "integration_test_ci:fail_fast" }
+
           # Unit tests on Python versions
-          - { name: "Python 3.13", python: "3.13", os: ubuntu-latest, group: "test", env: "test:all" }
-          - { name: "Python 3.12", python: "3.12", os: ubuntu-latest, group: "test", env: "test:all" }
-          - { name: "Python 3.11", python: "3.11", os: ubuntu-latest, group: "test", env: "test:all" }
-          - { name: "Python 3.10", python: "3.10", os: ubuntu-latest, group: "test", env: "test:all" }
+          - {
+            name: "Python 3.15",
+            python: "3.15",
+            os: ubuntu-latest,
+            group: "test",
+            env: "test:all",
+          }
+          - {
+              name: "Python 3.14",
+              python: "3.14",
+              os: ubuntu-latest,
+              group: "test",
+              env: "test:all",
+            }
+          - {
+              name: "Python 3.13",
+              python: "3.13",
+              os: ubuntu-latest,
+              group: "test",
+              env: "test:all",
+            }
+          - {
+              name: "Python 3.12",
+              python: "3.12",
+              os: ubuntu-latest,
+              group: "test",
+              env: "test:all",
+            }
+          - {
+              name: "Python 3.11",
+              python: "3.11",
+              os: ubuntu-latest,
+              group: "test",
+              env: "test:all",
+            }
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
-          version: "0.7.2"
+          version: "0.13.7"
           enable-cache: true
-          cache-dependency-glob: "uv.lock"
+          cache-dependency-glob: |
+            "pyproject.toml"
+            "uv.lock"
 
       - run: uv venv --python ${{ matrix.python }}
 
@@ -172,46 +257,46 @@ jobs:
 
       # Grab the built artifacts to ensure we're testing what we eventually publish
       - name: Download Python dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: python-dist
           path: dist
-    
+
       - name: Download WebUI dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: webui-dist
           path: locust/webui/dist
 
       - name: Run tests
         run: uv run --group ${{ matrix.group }} hatch run +py=${{ matrix.python }} ${{ matrix.env }}
-      
+
   test_docker_image:
     name: Test Docker Image
     runs-on: ubuntu-latest
     needs: build_package
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-  
+
       # Grab the built artifacts to ensure we're testing what we eventually publish
       - name: Download Python dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: python-dist
           path: dist
 
       # Set up Docker daemon dependencies for building and publishing
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # Build and load Docker image to the local daemon
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile.ci
@@ -224,14 +309,58 @@ jobs:
         run: |
           docker run --rm locustio/locust:${{ github.sha }}-test --version
 
+  test_docker_image_otel:
+    name: Test Docker Image (OTel)
+    runs-on: ubuntu-latest
+    needs: build_package
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download Python dist
+        uses: actions/download-artifact@v8
+        with:
+          name: python-dist
+          path: dist
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build base locust image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile.ci
+          platforms: linux/amd64
+          load: true
+          tags: locustio/locust:${{ github.sha }}-test
+
+      - name: Build OTel image (chained from base)
+        run: |
+          docker build \
+            --build-arg BASE_IMAGE=locustio/locust:${{ github.sha }}-test \
+            -f ./Dockerfile.otel \
+            -t locustio/locust-otel:${{ github.sha }}-test .
+
+      - name: Test docker image
+        run: |
+          docker run --rm locustio/locust-otel:${{ github.sha }}-test --version
+      - name: Verify OpenTelemetry packages are installed
+        run: |
+          docker run --rm --entrypoint python locustio/locust-otel:${{ github.sha }}-test -c "import opentelemetry; from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter; print('OTel OK')"
+
   test_webui:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: 22.x
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: locust/webui/yarn.lock
       - name: yarn install
         uses: borales/actions-yarn@v5
@@ -264,24 +393,24 @@ jobs:
   # -------------------------
 
   publish-docker:
-    needs: [tests, test_webui, test_docker_image, build_package]
+    needs: [tests, test_webui, test_docker_image, test_docker_image_otel, build_package]
     if: github.repository_owner == 'locustio' && ( github.ref == 'refs/heads/master' || startsWith(github.event.ref, 'refs/tags') )
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       # Download Python dist artifact
-      - name: Download Python dist 
-        uses: actions/download-artifact@v4
+      - name: Download Python dist
+        uses: actions/download-artifact@v8
         with:
           name: python-dist
           path: dist
 
       # Download Web UI lib artifact
       - name: Download UI lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: webui-lib-dist
           path: locust/webui/lib
@@ -292,7 +421,7 @@ jobs:
       # Set docker image and tag values
       - name: Docker meta
         id: docker_meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: locustio/locust
           tags: |
@@ -300,17 +429,17 @@ jobs:
             type=raw,value=${{ needs.build_package.outputs.tag }}
             type=raw,value=${{ needs.build_package.outputs.branch }}
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           username: locustbuild
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build and (optionally) push docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile.ci
@@ -318,25 +447,70 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.docker_meta.outputs.tags }}
 
-  publish-pypi:
-    needs: [tests, test_webui, test_docker_image, build_package]
+  publish-docker-otel:
+    needs: [publish-docker, build_package]
     if: github.repository_owner == 'locustio' && ( github.ref == 'refs/heads/master' || startsWith(github.event.ref, 'refs/tags') )
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download Python dist
+        uses: actions/download-artifact@v8
+        with:
+          name: python-dist
+          path: dist
+
+      - name: Docker meta
+        id: docker_meta
+        uses: docker/metadata-action@v6
+        with:
+          images: locustio/locust-otel
+          tags: |
+            type=raw,value=latest,enable=${{ needs.build_package.outputs.is_tag_build }}
+            type=raw,value=${{ needs.build_package.outputs.tag }}
+            type=raw,value=${{ needs.build_package.outputs.branch }}
+
+      - uses: docker/login-action@v4
+        with:
+          username: locustbuild
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and (optionally) push docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile.otel
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          build-args: |
+            BASE_IMAGE=locustio/locust:${{ needs.build_package.outputs.tag }}
+
+  publish-pypi:
+    needs: [tests, test_webui, test_docker_image, test_docker_image_otel, build_package]
+    if: github.repository_owner == 'locustio' && ( github.ref == 'refs/heads/master' || startsWith(github.event.ref, 'refs/tags') )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       # Download Python dist artifact
-      - name: Download Python dist 
-        uses: actions/download-artifact@v4
+      - name: Download Python dist
+        uses: actions/download-artifact@v8
         with:
           name: python-dist
           path: dist
 
       # Download Web UI lib artifact
       - name: Download UI lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: webui-lib-dist
           path: locust/webui/lib
@@ -361,7 +535,7 @@ jobs:
         with:
           cmd: version ${{ needs.build_package.outputs.tag_short }}-next-${{ github.run_id }}
           dir: locust/webui
-      
+
       # Set tag build version
       - name: yarn version
         uses: borales/actions-yarn@v5
@@ -376,18 +550,18 @@ jobs:
           cmd: config set npmAuthToken ${{ secrets.NPM_AUTH_TOKEN }}
           dir: locust/webui
 
-      # Publish UI lib
-      - uses: borales/actions-yarn@v5
-        name: Publish package on NPM
-        if: github.ref == 'refs/heads/master'
-        with:
-          cmd: npm publish --tag next 
-          dir: locust/webui
-      
-      # On tag builds
-      - uses: borales/actions-yarn@v5
-        name: Publish package on NPM
-        if: startsWith(github.event.ref, 'refs/tags')
-        with:
-          cmd: npm publish
-          dir: locust/webui
+    #   # Publish UI lib
+    #   - uses: borales/actions-yarn@v5
+    #     name: Publish package on NPM
+    #     if: github.ref == 'refs/heads/master'
+    #     with:
+    #       cmd: npm publish --tag next
+    #       dir: locust/webui
+
+    #   # On tag builds
+    #   - uses: borales/actions-yarn@v5
+    #     name: Publish package on NPM
+    #     if: startsWith(github.event.ref, 'refs/tags')
+    #     with:
+    #       cmd: npm publish
+    #       dir: locust/webui
