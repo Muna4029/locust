@@ -77,10 +77,18 @@ def setup_logging(loglevel, logfile=None):
 
 
 def get_logs():
-    log_reader_handler = [handler for handler in logging.getLogger("root").handlers if handler.name == "log_reader"]
+    # Access the actual root logger object and its handlers (dictConfig may attach handlers to logging.root)
+    root_logger = logging.root if hasattr(logging, "root") else logging.getLogger()
+    handlers = getattr(root_logger, "handlers", [])
 
-    if log_reader_handler:
-        return list(log_reader_handler[0].logs)
+    # Prefer handlers that are actual LogReader instances, otherwise accept any handler exposing a 'logs' attribute
+    for handler in handlers:
+        try:
+            if isinstance(handler, LogReader) or hasattr(handler, "logs"):
+                return list(getattr(handler, "logs"))
+        except Exception:
+            # If inspection of a handler fails for any reason, skip it
+            continue
 
     return []
 
